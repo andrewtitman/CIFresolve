@@ -1,0 +1,9 @@
+export("KM_resolve","CIF_resolve","make_data")
+
+S3method(plot, CIFresolve)
+S3method(plot, KMresolve)
+S3method(print, CIFresolve)
+S3method(print, KMresolve)
+
+importFrom("stats","approxfun")
+importFrom("graphics", "lines", "par", "plot","legend","points")
