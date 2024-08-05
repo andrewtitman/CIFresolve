@@ -1,4 +1,4 @@
-export("KM_resolve","CIF_resolve","make_data")
+export("KM_resolve","CIF_resolve","make_data","control.CIFresolve","align_CIF")
 
 S3method(plot, CIFresolve)
 S3method(plot, KMresolve)
