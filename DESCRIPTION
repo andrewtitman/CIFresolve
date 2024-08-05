@@ -7,6 +7,7 @@ Authors@R: person("Andrew", "Titman", role=c("aut", "cre"),
 Maintainer: Andrew Titman <a.titman@lancaster.ac.uk>
 Description: Uses quadratic programming methods to reconstruct pseudo-individual patient data using digitized cumulative incidence function or Kaplan-Meier curves.
 License: GPL (>=2)
+Depends: R (>= 3.5.0)
 Encoding: UTF-8
 LazyData: true
 Imports:
