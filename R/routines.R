@@ -1,31 +1,64 @@
-KM_resolve <- function(S, t.risk, n.risk, ndeath=NULL,ticks=NULL,strict_tick=FALSE,strict_dec=TRUE,totaltime=NULL,totaltime_power=1, c.event=NULL, t.event=NULL, optmethod="approx",cen_penalty=1e-3,constr_tol=1e-8,nprobe=0,epagap=1e-6,epgap=1e-4,tilim=1000,trace=1,ttol=0.01,cen_max=NULL,ceventinc=FALSE) {
+#Routines with a control argument
+
+control.CIFresolve <- function(strict_tick=TRUE,strict_dec=TRUE,cen_penalty=1e-3,constr_tol=1e-8,nprobe=0,epagap=1e-6,epgap=1e-4,tilim=1000,trace=1,ttol=0.001,cen_max=NULL,ceventinc=FALSE,timeunit=1) {
+  #Some basic checks on the control inputs.
+  if (!is.logical(strict_tick)) stop("strict_tick must be a logical")
+  if (!is.logical(strict_tick)) stop("strict_dec must be a logical")
+  if (!is.logical(ceventinc)) stop("ceventinc must be a logical")
+  if (!is.numeric(cen_penalty)) stop("cen_penalty must be numeric")
+  if (!is.numeric(constr_tol)) stop("constr_tol must be numeric")
+  if (!is.numeric(epagap)) stop("epagap must be numeric")
+  if (!is.numeric(epgap)) stop("epgap must be numeric")
+  if (!is.numeric(tilim)) stop("tilim must be numeric")
+  if (!is.numeric(ttol)) stop("ttol must be numeric")
+  if (!is.numeric(cen_penalty)) stop("cen_penalty must be numeric")
+  if (!is.numeric(timeunit)) stop("time_unit must be numeric")
+  if (cen_penalty <0 ) stop("cen_penalty must be positive")
+  if (constr_tol <0 ) stop("constr_tol must be positive")
+  if (epagap <0 ) stop("epagap must be positive")
+  if (epgap <0 ) stop("epgap must be positive")
+  if (tilim <0) stop("tilim must be positive")
+  if (ttol <0) stop("ttol must be positive")
+  if (timeunit <=0) stop("time_unit must be positive")
+  if (!is.null(cen_max)) {
+    if (!is.numeric(cen_max)) stop("cen_max must be numeric, if supplied")
+    if (cen_max < 1) stop("cen_max must be greater than or equal to 1.")
+  }
+  control_list <- list(strict_tick=strict_tick, strict_dec=strict_dec,cen_penalty=cen_penalty,constr_tol=constr_tol,nprobe=nprobe,epagap=epagap,epgap=epgap,tilim=tilim,trace=trace,ttol=ttol,cen_max=cen_max,ceventinc=ceventinc,timeunit=timeunit)
+  class(control_list) <- "CIFresolve_control"
+  return(control_list)
+}
+
+
+KM_resolve <- function(S, t.risk, n.risk, ndeath=NULL,ticks=NULL,totaltime=NULL,totaltime_power=1, c.event=NULL, t.event=NULL, optmethod="approx",control=control.CIFresolve()) {
   #Wrapper function that just uses the CIF method (should be equivalent in the case of one risk)
   #S: a list containing $time: times KM extracted, $surv: KM values at those times
   #t.risk = vector of times at which number at risk is known
   #n.risk = vector of numbers at risk
   #ndeath = total number of events/deaths (can be omitted)
   #ticks = optional vector of locations of tick marks representing censoring times
-  #strict_tick = whether to enforce a constraint that censoring only occurs at the identified tick points
-  #strict_dec = whether to enforce a constraint that any identified decrement in the curve must be associated with at least 1 observed event
   #totaltime = observed/inferred total time at risk or total transformed times at risk (sum t_{i}^pow)
   #totaltime_power = the power by which each of the individual times has been raised in the calculation of totaltime, defaults to 1, potentially useful if the MLEs of the Weibull rate and shape parameters are known.
   #c.event = optional vector of cumulative number of events at the t.event values
   #t.event = optional vector of times at which number of cumulative events is supplied, if NULL makes t.event=t.risk
   #optmethod = Method of finding the solution: "approx" - solve the continuous QP and then do integer rounding or "miqp" - use full mixed integer QP optimization using Rcplex
-  #cen_penalty = Penalty on the square of the objective matrix (penalizes solutions with lots of ties in censoring)
-  #constr_tol = Tolerance value on constraints to avoid solve.QP erroneously claiming no solutions (increase the value if get this error)
-  #nprobe, epgap, tilim = control parameters for MIQP method (tilim is maximum computation time for optimizer in seconds)
-  #cen_max = Maximum number of censoring times at a particular point in the solution (another way of preventing solutions with over clumpy censoring distributions)
-  #ttol = percentage tolerance by which the totaltime value is to be recovered
-  #ceventinc = if c.event supplied, whether the cumulative total is events at times <=t (rather than <t if FALSE).
+  #control = optional list of additional control parameters. See control.CIFresolve for more details.
+    if (!inherits(control,"CIFresolve_control")) {
+    if (is.list(control)) {
+      if (any(!names(control)%in%names(formals(control.CIFresolve)))) stop("Invalid control argument. See ?control.CIFresolve for details")
+      control <- do.call(control.CIFresolve, args=control)
+    }else{
+       stop("control must be a list containing valid control parameters. See ?control.CIFresolve for details.")
+    }
+   }
   if (is.data.frame(S)) S <- list(time=S$time,surv=S$surv)
   if (!is.null(ndeath) & !is.null(c.event)) {
     if (max(c.event) > ndeath) {
-       stop("Cumulative events in c.event contradict total events in ndeath.")
+      stop("Cumulative events in c.event contradict total events in ndeath.")
     }
   }
   S$cif <- cbind(1- S$surv)
-  output <- CIF_resolve(S, t.risk, n.risk, nevent=NULL,ndeath,ticks,strict_tick,strict_dec, totaltime,totaltime_power,c.event, t.event, optmethod,cen_penalty,constr_tol,nprobe,epagap,epgap,tilim,trace,ttol,cen_max, ceventinc)
+  output <- CIF_resolve(S, t.risk, n.risk, nevent=NULL,ndeath,ticks,totaltime,totaltime_power,c.event, t.event, optmethod,control)
   #Translate this output into the standard output (need to retain attributes)
   int_obj <- attr(output,"int_obj")
   status <- attr(output,"object")$status
@@ -37,25 +70,42 @@ KM_resolve <- function(S, t.risk, n.risk, ndeath=NULL,ticks=NULL,strict_tick=FAL
   return(output)
 }
 
-CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,strict_tick=FALSE,strict_dec=TRUE, totaltime=NULL, totaltime_power=1, c.event=NULL,t.event=NULL,optmethod="approx",cen_penalty=1e-3,constr_tol=1e-8,nprobe=0,epagap=1e-6,epgap=1e-4,tilim=1000,trace=1,ttol=0.01,cen_max=NULL,ceventinc=FALSE) {
+CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,totaltime=NULL, totaltime_power=1, c.event=NULL,t.event=NULL,optmethod="approx",control=control.CIFresolve()) {
   #S$cif should be a list containing $time: times at which the CIF extracted, $cif: a matrix of CIF values at those times.
   #t.risk = vector of times at which number at risk is known
   #n.risk = vector of numbers at risk
   #nevent = vector of number of events of each type (can be omitted)
   #ndeath = total number of events/deaths across all types (can be omitted)
   #ticks = optional vector of locations of tick marks representing censoring times
-  #strict_tick = whether to enforce a constraint that censoring only occurs at the tick points
-  #strict_dec = whether to enforce a constraint that any identified decrement (increment in estimated CIF) in the curve must be associated with at least 1 observed event
   #totaltime = observed/inferred total time at risk or total transformed times at risk (sum t_{i}^pow)
   #totaltime_power = the power by which each of the individual times has been raised in the calculation of totaltime, defaults to 1, potentially useful if the MLEs of the Weibull rate and shape parameters are known.
   #c.event = optional vector or matrix of cumulative number of events; should either be a vector (in which case is interpreted as the cumulative total events) or a matrix where each column represents a given risk
   #t.event = optional vector of times at which number of cumulative events is supplied, if NULL makes t.event=t.risk
   #optmethod = Method of finding the solution: "approx" - solve the continuous QP and then do integer rounding or "miqp" - use full mixed integer QP optimization using Rcplex
-  #constr_tol = Tolerance value on constraints to avoid solve.QP erroneously claiming no solutions (increase the value if get this error)
-  #nprobe, epgap, tilim = control parameters for MIQP method.
-  #cen_max = Maximum number of censoring times at a particular point in the solution (another way of preventing solutions with over clumpy censoring distributions)
-  #ttol = percentage tolerance by which the totaltime value is to be recovered
-  #ceventinc = if c.event supplied, whether the cumulative total is events at times <=t (rather than <t if FALSE).
+  #control = list of control parameters as specified by control.CIFresolve.
+  if (!inherits(control,"CIFresolve_control")) {
+    if (is.list(control)) {
+      if (any(!names(control)%in%names(formals(control.CIFresolve)))) stop("Invalid control argument. See ?control.CIFresolve for details")
+      control <- do.call(control.CIFresolve, args=control)
+    }else{
+      stop("control must be a list containing valid control parameters. See ?control.CIFresolve for details.")
+    }
+  }
+  #Extract all the control parameters out of the control list...
+  strict_tick<-control$strict_tick
+  strict_dec <- control$strict_dec
+  cen_penalty <- control$cen_penalty
+  constr_tol <- control$constr_tol
+  nprobe <- control$nprobe
+  epagap <- control$epagap
+  epgap <- control$epgap
+  tilim <- control$tilim
+  trace <- control$trace
+  ttol <- control$ttol
+  cen_max <- control$cen_max
+  ceventinc <- control$ceventinc
+  timeunit <- control$timeunit
+
   if (!is.null(totaltime) & optmethod!="miqp") warning("Total time constraint may not be met in the integer solution when the approximate integer rounding method is used. Use MIQP, if required.")
   if (is.data.frame(S)) stop("S should be a list not a data frame")
   if (!"time"%in%names(S)) stop("S needs to include a component named time")
@@ -80,14 +130,16 @@ CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,st
   if (min(n.risk)>0) {
     #Impute an extra time with zero at risk
     cmax <- max(t.risk)
-    t.risk <- c(t.risk,max(S$time,t.risk,ticks)+1)
+    mtime <- max(S$time,t.risk,ticks)+timeunit
+    t.risk <- c(t.risk,mtime)
     n.risk <- c(n.risk,0)
     if (!is.null(ticks)) {
       if (max(ticks) < cmax) {
         #Add an extra tick point
-        ticks <- c(ticks,max(S$time,t.risk,ticks)+1)
+        ticks <- c(ticks,mtime)
       }
     }
+    warning(paste("Number at risk at final time not equal to zero. An additional censoring time was added at time", round(mtime,3),sep=" "))
   }
   last_time <- max(S$time,t.risk,ticks)
 
@@ -148,14 +200,14 @@ CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,st
       }
     }
     if (is.vector(c.event)) {
-       chunk_event_totals <- NULL
-       chunk_event_total <- diff(c(c.event,c.event[length(c.event)]))
+      chunk_event_totals <- NULL
+      chunk_event_total <- diff(c(c.event,c.event[length(c.event)]))
     }else{
-       chunk_event_total <- NULL
-       chunk_event_totals <- apply(c.event, 2, function(x) diff(c(x,x[length(x)])))
+      chunk_event_total <- NULL
+      chunk_event_totals <- apply(c.event, 2, function(x) diff(c(x,x[length(x)])))
     }
   }else{
-   chunk_event_total <- chunk_event_totals <- NULL
+    chunk_event_total <- chunk_event_totals <- NULL
   }
 
   #Need to do something about chunks of zero length
@@ -165,12 +217,12 @@ CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,st
 
   if (!is.null(chunk_event_total)) {
     if (max(S$chunk2) < length(chunk_event_total)) {
-       chunk_event_total <- chunk_event_total[1:max(S$chunk2)]
+      chunk_event_total <- chunk_event_total[1:max(S$chunk2)]
     }
   }
   if (!is.null(chunk_event_totals)) {
     if (max(S$chunk2) < dim(chunk_event_totals)[1]) {
-       chunk_event_totals <- chunk_event_totals[1:max(S$chunk2),]
+      chunk_event_totals <- chunk_event_totals[1:max(S$chunk2),]
     }
   }
 
@@ -243,9 +295,9 @@ CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,st
     for (i in 1:nchunk2) {
       mm <- which(S$chunk2==i)
       if (ncomp >1) {
-       for (j in 1:(ncomp-1)) {
-         mm <- c(mm,which(S$chunk2==i)+j*length(S$time))
-       }
+        for (j in 1:(ncomp-1)) {
+          mm <- c(mm,which(S$chunk2==i)+j*length(S$time))
+        }
       }
       Aeq[nchunk+i,mm] <- 1
       Beq[nchunk+i] <- chunk_event_total[i]
@@ -254,16 +306,16 @@ CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,st
   }
   if (chunkscenario==5) {
 
-   for (j in 1:ncomp) {
-    for (i in 1:nchunk2) {
-      mm <- which(S$chunk2==i) + (j-1)*length(S$time)
-      Aeq[(nchunk+i+(j-1)*nchunk2),mm] <- 1
-      Beq[(nchunk+i+(j-1)*nchunk2)] <- chunk_event_totals[i,j]
+    for (j in 1:ncomp) {
+      for (i in 1:nchunk2) {
+        mm <- which(S$chunk2==i) + (j-1)*length(S$time)
+        Aeq[(nchunk+i+(j-1)*nchunk2),mm] <- 1
+        Beq[(nchunk+i+(j-1)*nchunk2)] <- chunk_event_totals[i,j]
+      }
     }
-   }
   }
 
-   #Only penalize the censoring times
+  #Only penalize the censoring times
   Dmat2 <- Dmat + diag(c(rep(c(0,cen_penalty),c(ncomp*length(S$time),length(S$time)))))
 
   excl <- NULL
@@ -318,7 +370,7 @@ CIF_resolve <- function(S, t.risk, n.risk, nevent=NULL,ndeath=NULL,ticks=NULL,st
 
   if (!is.null(totaltime)) {
     if (!is.numeric(totaltime)) stop("totaltime needs to be a numeric scalar corresponding to the total patient time at risk")
-   #Need to add two more inequality constraints
+    #Need to add two more inequality constraints
     #If ticks supplied assume censoring is at the times themselves.
     #Otherwise take midpoint between the time and the next time
     if (is.null(ticks)) {
@@ -499,7 +551,7 @@ plot.KMresolve <- function(x,...) {
   opar <- par(no.readonly =TRUE)
   on.exit(par(opar))
   if (attr(km,"c.event")) {
-     par(mfrow=c(1,3))
+    par(mfrow=c(1,3))
   }else{
     par(mfrow=c(1,2))
   }
@@ -515,5 +567,25 @@ plot.KMresolve <- function(x,...) {
     plot(km$time,cumsum(km$nevent),type="s",xlab="Time",ylab="Cumulative events")
     points(attr(km,"events")$t.event,attr(km,"events")$c.event,pch=16)
   }
+}
+
+#Function for creating the correct CIF list from individual cif
+align_CIF <- function(..., res_digits=4) {
+  #Supply one or more lists containing named vectors "time" and "cif"
+  #Will convert into a list with "time" and a matrix "cif"
+  lists <- list(...)
+  for (i in 1:length(lists)) {
+    lists[[i]]$time <- round(lists[[i]]$time,res_digits)
+  }
+  all_times <- unique(sort(unlist(sapply(lists, function(x) x$time))))
+  if (min(all_times) >0) {
+    all_times <- c(0,all_times)
+  }
+  cif <- array(0,c(length(all_times),length(lists)))
+  for (i in 1:length(lists)) {
+    mm <- sapply(all_times, function(x) sum(lists[[i]]$time <= x))
+    cif[cbind(which(mm!=0),i)] <- lists[[i]]$cif[mm[which(mm!=0)]]
+  }
+  return(list(time=all_times,cif=cif))
 }
 
